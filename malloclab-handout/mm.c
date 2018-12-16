@@ -62,6 +62,17 @@ team_t team = {
 #define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 #define PREV_BLKP(bp)   ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
+static char *heap_listp = 0;
+
+static void *extend_heap(size_t words);
+static void *best_fit(size_t asize);
+static void place(void *bp, size_t asize);
+static void *immediate_coalesce(void *bp);
+
+
+
+
+
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -89,8 +100,6 @@ static void *extend_heap(size_t words){
     PUT(FTRP(bp), PACK(size, 0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
 
-    //return immediate_coalesce(bp);
-    //immediate or delay
     return bp;
 }
 /* 
@@ -113,28 +122,12 @@ void *mm_malloc(size_t size)
         return bp;
     }
 
-    //immediate or delay
-    delay_coalesce();
-    if((bp = best_fit(asize)) != NULL){
-        place(bp, asize);
-        return bp;
-    }
-
     extendsize = MAX(asize, CHUNKSIZE);
     if((bp = extend_heap(extendsize/WSIZE)) == NULL) return NULL;
     place(bp, asize);
     return bp;
 }
 
-static void *first_fit(size_t asize){
-    char *st = heap_listp;
-    size_t size;
-    while((size=GET_SIZE(HDRP(st)))!=0) {
-        if(size>=asize && !GET_ALLOC(HDRP(st))) return st;
-        st = NEXT_BLKP(st);
-    }
-    return NULL;
-}
 
 static void *best_fit(size_t asize){
     char *st = heap_listp;
@@ -175,8 +168,7 @@ void mm_free(void *ptr)
 
     PUT(HDRP(ptr), PACK(size, 0));
     PUT(FTRP(ptr), PACK(size, 0));
-    //immediate_coalesce(ptr);
-    //immediate or delay
+    immediate_coalesce(ptr);
 }
 
 static void *immediate_coalesce(void *bp){
@@ -205,63 +197,23 @@ static void *immediate_coalesce(void *bp){
     return bp;
 }
 
-static void delay_coalesce(){
-    char *st = heap_listp;
-    size_t size;
-    while((size = GET_SIZE(HDRP(st)))!=0){
-        if(!GET_ALLOC(HDRP(st))){
-            st = immediate_coalesce(st);
-        }
-        st = NEXT_BLKP(st);
-    }
-}
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    if(ptr == NULL){
-        return mm_malloc(size);
-    }
-    if(size == 0){
-        mm_free(ptr);
-        return NULL;
-    }
-
-    size_t asize;
-    if(size <= DSIZE) asize  = 2 * DSIZE;
-    else asize = DSIZE * ((size + (DSIZE) + (DSIZE - 1))/DSIZE);
-
-    size_t oldsize = GET_SIZE(HDRP(ptr));
-    if(oldsize == asize) return ptr;
-    else if(oldsize > asize){
-        PUT(HDRP(ptr), PACK(asize, 1));
-        PUT(FTRP(ptr), PACK(asize, 1));
-        PUT(HDRP(NEXT_BLKP(ptr)), PACK(oldsize - asize, 0));
-        PUT(FTRP(NEXT_BLKP(ptr)), PACK(oldsize - asize, 0));
-        //immediate_coalesce(NEXT_BLKP(ptr));
-        //immediate or delay
-        return ptr;
-    }
-    else{
-        size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(ptr)));
-        if(!next_alloc && GET_SIZE(HDRP(NEXT_BLKP(ptr))) + oldsize >= asize) {
-            size_t last = GET_SIZE(HDRP(NEXT_BLKP(ptr))) + oldsize - asize;
-            PUT(HDRP(ptr), PACK(asize, 1));
-            PUT(FTRP(ptr), PACK(asize, 1));
-            if(last >= DSIZE){
-                PUT(HDRP(NEXT_BLKP(ptr)), PACK(last, 0));
-                PUT(FTRP(NEXT_BLKP(ptr)), PACK(last, 0));
-            }
-            return ptr;
-        }
-        else{
-            char *newptr = mm_malloc(asize);
-            if(newptr == NULL) return NULL;
-            memcpy(newptr, ptr, oldsize - DSIZE);
-            mm_free(ptr);
-            return newptr;
-        }
-    }
+    void *oldptr = ptr;
+    void *newptr;
+    size_t copySize;
+    
+    newptr = mm_malloc(size);
+    if (newptr == NULL)
+      return NULL;
+    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    if (size < copySize)
+      copySize = size;
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
 }
